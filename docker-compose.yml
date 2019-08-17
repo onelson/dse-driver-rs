@@ -1,0 +1,39 @@
+version: '2'
+
+services:
+    studio:
+        image: "datastax/dse-studio"
+        environment:
+            - DS_LICENSE=accept
+        ports:
+            - 9091:9091
+        volumes:
+            - studio-data:/var/lib/datastax-studio
+        links:
+            - node
+    node:
+        image: "datastax/dse-server"
+        environment:
+            - CLUSTER_NAME=$USER.local
+            - DS_LICENSE=accept
+        ports:
+            - 8182:8182
+            - 9042:9042
+        command: -g -k
+        # Allow DSE to lock memory with mlock
+        cap_add:
+            - IPC_LOCK
+        ulimits:
+            memlock: -1
+        volumes:
+            - cassandra-data:/var/lib/cassandra
+            - spark-data:/var/lib/spark
+            - dsef-data:/var/lib/dsef
+
+
+volumes:
+    studio-data:
+    cassandra-data:
+    spark-data:
+    dsef-data:
+
