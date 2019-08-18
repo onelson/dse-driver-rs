@@ -30,10 +30,22 @@ services:
             - spark-data:/var/lib/spark
             - dsef-data:/var/lib/dsef
 
+    tester:
+        build: .
+        # use `docker-compose run ...` to run what you need
+        command: /bin/false
+        links:
+            - node
+        volumes:
+            - cargo-cache:/opt/rust/cargo
+            - tester-profile:/root
+            - .:/code
 
 volumes:
     studio-data:
     cassandra-data:
     spark-data:
     dsef-data:
+    tester-profile:
+    cargo-cache:
 
