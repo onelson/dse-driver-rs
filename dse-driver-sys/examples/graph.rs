@@ -38,13 +38,17 @@ peter.addEdge('created', lop, 'weight', 0.2f);
 \0";
 
 use dse_driver_sys::{
-    cass_bool_t, cass_bool_t_cass_false, cass_bool_t_cass_true, cass_future_error_code,
+    cass_bool_t, cass_bool_t_cass_false, cass_bool_t_cass_true, cass_cluster_free,
+    cass_cluster_new_dse, cass_cluster_set_contact_points, cass_future_error_code,
     cass_future_error_message, cass_future_free, cass_future_get_dse_graph_resultset,
-    cass_session_execute_dse_graph, dse_graph_object_add_string, dse_graph_object_finish,
-    dse_graph_object_free, dse_graph_object_new, dse_graph_result_as_edge,
-    dse_graph_result_get_bool, dse_graph_result_is_bool, dse_graph_resultset_count,
-    dse_graph_resultset_free, dse_graph_resultset_next, dse_graph_statement_bind_values,
-    dse_graph_statement_free, dse_graph_statement_new, CassError__CASS_OK, CassFuture, CassSession,
+    cass_future_wait, cass_log_set_level, cass_session_close, cass_session_connect,
+    cass_session_execute_dse_graph, cass_session_free, cass_session_new,
+    dse_graph_object_add_string, dse_graph_object_finish, dse_graph_object_free,
+    dse_graph_object_new, dse_graph_options_free, dse_graph_options_new,
+    dse_graph_options_set_graph_name, dse_graph_result_get_bool, dse_graph_result_is_bool,
+    dse_graph_resultset_count, dse_graph_resultset_free, dse_graph_resultset_next,
+    dse_graph_statement_bind_values, dse_graph_statement_free, dse_graph_statement_new,
+    CassCluster, CassError__CASS_OK, CassFuture, CassLogLevel__CASS_LOG_INFO, CassSession,
     DseGraphObject, DseGraphOptions, DseGraphResult, DseGraphResultSet,
 };
 use std::ffi::{CStr, CString};
@@ -112,17 +116,16 @@ unsafe fn create_graph(session: *mut CassSession, name: *const c_char) -> cass_b
 
     dse_graph_object_add_string(
         values,
-        CStr::from_bytes_with_nul(b"name\0").unwrap().as_ptr(),
+        CStr::from_bytes_with_nul_unchecked(b"name\0").as_ptr(),
         name,
     );
     dse_graph_object_finish(values);
 
-    let query = CStr::from_bytes_with_nul(
+    let query = CStr::from_bytes_with_nul_unchecked(
         b"graph = system.graph(name); \
          if (graph.exists()) graph.drop(); \
          graph.create();\0",
-    )
-    .unwrap();
+    );
 
     if execute_graph_query(
         session,
@@ -140,9 +143,7 @@ unsafe fn create_graph(session: *mut CassSession, name: *const c_char) -> cass_b
             let mut resultset = std::mem::MaybeUninit::uninit();
             if execute_graph_query(
                 session,
-                CStr::from_bytes_with_nul(b"system.graph(name).exists()\0")
-                    .unwrap()
-                    .as_ptr(),
+                CStr::from_bytes_with_nul_unchecked(b"system.graph(name).exists()\0").as_ptr(),
                 ptr::null(),
                 values,
                 resultset.as_mut_ptr(),
@@ -181,4 +182,48 @@ unsafe fn execute_graph_query_and_print(
     unimplemented!();
 }
 
-fn main() {}
+fn main() {
+    unsafe {
+        let hosts = CString::new(
+            std::env::args()
+                .nth(1)
+                .unwrap_or_else(|| "127.0.0.1".to_string()),
+        )
+        .unwrap();
+
+        let cluster: *mut CassCluster = cass_cluster_new_dse();
+        let session: *mut CassSession = cass_session_new();
+
+        let graph_name = CStr::from_bytes_with_nul_unchecked(b"classic\0").as_ptr();
+        let allow_scans = CStr::from_bytes_with_nul_unchecked(GRAPH_ALLOW_SCANS).as_ptr();
+        let make_strict = CStr::from_bytes_with_nul_unchecked(GRAPH_MAKE_STRICT).as_ptr();
+        let schema = CStr::from_bytes_with_nul_unchecked(GRAPH_SCHEMA).as_ptr();
+        let data = CStr::from_bytes_with_nul_unchecked(GRAPH_DATA).as_ptr();
+
+        cass_log_set_level(CassLogLevel__CASS_LOG_INFO);
+        cass_cluster_set_contact_points(cluster, hosts.as_ptr());
+        let connect_future = cass_session_connect(session, cluster);
+        if cass_future_error_code(connect_future) == CassError__CASS_OK {
+            let mut options: *mut DseGraphOptions = dse_graph_options_new();
+
+            dse_graph_options_set_graph_name(options, graph_name);
+
+            if create_graph(session, graph_name) == cass_bool_t_cass_true {
+                execute_graph_query(session, allow_scans, options, ptr::null(), ptr::null_mut());
+                execute_graph_query(session, make_strict, options, ptr::null(), ptr::null_mut());
+                execute_graph_query(session, schema, options, ptr::null(), ptr::null_mut());
+                execute_graph_query(session, data, options, ptr::null(), ptr::null_mut());
+            }
+
+            dse_graph_options_free(options);
+
+            let close_future = cass_session_close(session);
+            cass_future_wait(close_future);
+            cass_future_free(close_future);
+        }
+
+        cass_future_free(connect_future);
+        cass_cluster_free(cluster);
+        cass_session_free(session);
+    }
+}
