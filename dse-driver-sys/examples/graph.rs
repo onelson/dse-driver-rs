@@ -38,16 +38,27 @@ peter.addEdge('created', lop, 'weight', 0.2f);
 \0";
 
 use dse_driver_sys::{
-    cass_bool_t, cass_bool_t_cass_false, cass_bool_t_cass_true, dse_graph_object_add_string,
-    dse_graph_object_finish, dse_graph_object_free, dse_graph_object_new, dse_graph_result_as_edge,
+    cass_bool_t, cass_bool_t_cass_false, cass_bool_t_cass_true, cass_future_error_code,
+    cass_future_error_message, cass_future_free, cass_future_get_dse_graph_resultset,
+    cass_session_execute_dse_graph, dse_graph_object_add_string, dse_graph_object_finish,
+    dse_graph_object_free, dse_graph_object_new, dse_graph_result_as_edge,
     dse_graph_result_get_bool, dse_graph_result_is_bool, dse_graph_resultset_count,
-    dse_graph_resultset_free, dse_graph_resultset_next, CassFuture, CassSession, DseGraphObject,
-    DseGraphOptions, DseGraphResult, DseGraphResultSet,
+    dse_graph_resultset_free, dse_graph_resultset_next, dse_graph_statement_bind_values,
+    dse_graph_statement_free, dse_graph_statement_new, CassError__CASS_OK, CassFuture, CassSession,
+    DseGraphObject, DseGraphOptions, DseGraphResult, DseGraphResultSet,
 };
+use std::ffi::{CStr, CString};
+use std::mem::MaybeUninit;
 use std::os::raw::{c_char, c_int};
 use std::ptr;
-unsafe fn print_error(future: *const CassFuture) {
-    unimplemented!();
+
+unsafe fn print_error(future: *mut CassFuture) {
+    let mut msg = MaybeUninit::uninit();
+    let mut len = MaybeUninit::uninit();
+    cass_future_error_message(future, msg.as_mut_ptr(), len.as_mut_ptr());
+    let msg = msg.assume_init();
+    let len = len.assume_init();
+    eprint!("Error:{} {}", len, CStr::from_ptr(msg).to_str().unwrap());
 }
 
 // FIXME: in the C code, this function is variadic, accepting positional args to print.
@@ -71,7 +82,27 @@ unsafe fn execute_graph_query(
     values: *const DseGraphObject,
     resultset: *mut *mut DseGraphResultSet,
 ) -> cass_bool_t {
-    unimplemented!();
+    let mut is_success: cass_bool_t = cass_bool_t_cass_false;
+
+    let mut statement = dse_graph_statement_new(query, options);
+    dse_graph_statement_bind_values(statement, values);
+
+    let mut future = cass_session_execute_dse_graph(session, statement);
+
+    if cass_future_error_code(future) == CassError__CASS_OK {
+        let rs = cass_future_get_dse_graph_resultset(future);
+        if !resultset.is_null() {
+            resultset.write(rs);
+        } else {
+            dse_graph_resultset_free(rs);
+        }
+        is_success = cass_bool_t_cass_true;
+    } else {
+        print_error(future);
+    }
+    cass_future_free(future);
+    dse_graph_statement_free(statement);
+    is_success
 }
 
 unsafe fn create_graph(session: *mut CassSession, name: *const c_char) -> cass_bool_t {
@@ -79,16 +110,23 @@ unsafe fn create_graph(session: *mut CassSession, name: *const c_char) -> cass_b
     let mut is_success: cass_bool_t = cass_bool_t_cass_false;
     let mut values: *mut DseGraphObject = dse_graph_object_new();
 
-    dse_graph_object_add_string(values, b"name\0".as_ptr() as *const c_char, name);
+    dse_graph_object_add_string(
+        values,
+        CStr::from_bytes_with_nul(b"name\0").unwrap().as_ptr(),
+        name,
+    );
     dse_graph_object_finish(values);
 
-    let query = b"graph = system.graph(name); \
+    let query = CStr::from_bytes_with_nul(
+        b"graph = system.graph(name); \
          if (graph.exists()) graph.drop(); \
-         graph.create();\0";
+         graph.create();\0",
+    )
+    .unwrap();
 
     if execute_graph_query(
         session,
-        query.as_ptr() as *const c_char,
+        query.as_ptr(),
         ptr::null(),
         values,
         ptr::null_mut(),
@@ -102,7 +140,9 @@ unsafe fn create_graph(session: *mut CassSession, name: *const c_char) -> cass_b
             let mut resultset = std::mem::MaybeUninit::uninit();
             if execute_graph_query(
                 session,
-                b"system.graph(name).exists()\0".as_ptr() as *const c_char,
+                CStr::from_bytes_with_nul(b"system.graph(name).exists()\0")
+                    .unwrap()
+                    .as_ptr(),
                 ptr::null(),
                 values,
                 resultset.as_mut_ptr(),
