@@ -45,11 +45,23 @@ use dse_driver_sys::{
     cass_session_execute_dse_graph, cass_session_free, cass_session_new,
     dse_graph_object_add_string, dse_graph_object_finish, dse_graph_object_free,
     dse_graph_object_new, dse_graph_options_free, dse_graph_options_new,
-    dse_graph_options_set_graph_name, dse_graph_result_get_bool, dse_graph_result_is_bool,
+    dse_graph_options_set_graph_name, dse_graph_result_element, dse_graph_result_element_count,
+    dse_graph_result_get_bool, dse_graph_result_get_double, dse_graph_result_get_int32,
+    dse_graph_result_get_int64, dse_graph_result_get_string, dse_graph_result_is_bool,
+    dse_graph_result_is_int32, dse_graph_result_is_int64, dse_graph_result_member_count,
+    dse_graph_result_member_key, dse_graph_result_member_value, dse_graph_result_type,
     dse_graph_resultset_count, dse_graph_resultset_free, dse_graph_resultset_next,
     dse_graph_statement_bind_values, dse_graph_statement_free, dse_graph_statement_new,
     CassCluster, CassError__CASS_OK, CassFuture, CassLogLevel__CASS_LOG_INFO, CassSession,
     DseGraphObject, DseGraphOptions, DseGraphResult, DseGraphResultSet,
+};
+use dse_driver_sys::{
+    DseGraphResultType__DSE_GRAPH_RESULT_TYPE_ARRAY as DSE_GRAPH_RESULT_TYPE_ARRAY,
+    DseGraphResultType__DSE_GRAPH_RESULT_TYPE_BOOL as DSE_GRAPH_RESULT_TYPE_BOOL,
+    DseGraphResultType__DSE_GRAPH_RESULT_TYPE_NULL as DSE_GRAPH_RESULT_TYPE_NULL,
+    DseGraphResultType__DSE_GRAPH_RESULT_TYPE_NUMBER as DSE_GRAPH_RESULT_TYPE_NUMBER,
+    DseGraphResultType__DSE_GRAPH_RESULT_TYPE_OBJECT as DSE_GRAPH_RESULT_TYPE_OBJECT,
+    DseGraphResultType__DSE_GRAPH_RESULT_TYPE_STRING as DSE_GRAPH_RESULT_TYPE_STRING,
 };
 use std::ffi::{CStr, CString};
 use std::mem::MaybeUninit;
@@ -65,18 +77,83 @@ unsafe fn print_error(future: *mut CassFuture) {
     eprint!("Error:{} {}", len, CStr::from_ptr(msg).to_str().unwrap());
 }
 
-// FIXME: in the C code, this function is variadic, accepting positional args to print.
-//  Once we look at the usage, we might replace it with some println or something.
-unsafe fn print_indented(indent: c_int, format: *const c_char) {
-    unimplemented!();
-}
-
 unsafe fn print_graph_result(indent: c_int, result: *const DseGraphResult) {
-    unimplemented!();
+    let indent = indent as usize;
+    match dse_graph_result_type(result) {
+        DSE_GRAPH_RESULT_TYPE_NULL => println!("{:indent$}{}", "", "null", indent = indent),
+        DSE_GRAPH_RESULT_TYPE_BOOL => {
+            let value = dse_graph_result_get_bool(result) == cass_bool_t_cass_true;
+            println!("{:indent$}{}", "", value, indent = indent);
+        }
+        DSE_GRAPH_RESULT_TYPE_NUMBER => {
+            if dse_graph_result_is_int32(result) == cass_bool_t_cass_true {
+                let value = dse_graph_result_get_int32(result);
+                println!("{:indent$}{}", "", value, indent = indent);
+            } else if dse_graph_result_is_int64(result) == cass_bool_t_cass_true {
+                let value = dse_graph_result_get_int64(result);
+                println!("{:indent$}{}", "", value, indent = indent);
+            } else {
+                let value = dse_graph_result_get_double(result);
+                println!("{:indent$}{}", "", value, indent = indent);
+            }
+        }
+        DSE_GRAPH_RESULT_TYPE_STRING => {
+            let value = CStr::from_ptr(dse_graph_result_get_string(result, ptr::null_mut()));
+            println!("{:indent$}{}", "", value.to_str().unwrap(), indent = indent);
+        }
+        DSE_GRAPH_RESULT_TYPE_OBJECT => {
+            let count = dse_graph_result_member_count(result);
+            let mut i = 0;
+            println!("{:indent$}{}", "", "{", indent = indent);
+            while i < count {
+                i += 1;
+                let key = CStr::from_ptr(dse_graph_result_member_key(result, i, ptr::null_mut()))
+                    .to_str()
+                    .unwrap();
+                let value = dse_graph_result_member_value(result, i);
+                let kind = dse_graph_result_type(value);
+                println!();
+                println!("{:indent$}\"{}\"", "", key, indent = indent + 4);
+                match kind {
+                    DSE_GRAPH_RESULT_TYPE_OBJECT | DSE_GRAPH_RESULT_TYPE_ARRAY => {
+                        println!();
+                        print_graph_result((indent + 4) as c_int, value);
+                    }
+                    _ => print_graph_result(0, value),
+                }
+                println!(",");
+            }
+            println!();
+            println!("{:indent$}{}", "", "}", indent = indent);
+        }
+        DSE_GRAPH_RESULT_TYPE_ARRAY => {
+            let count = dse_graph_result_element_count(result);
+            println!("{:indent$}{}", "", "[", indent = indent);
+            let mut i = 0;
+            while i < count {
+                i += 1;
+                let element = dse_graph_result_element(result, i);
+                println!();
+                print_graph_result((indent + 4) as c_int, element);
+                println!(",");
+            }
+            println!();
+            println!("{:indent$}{}", "", "]", indent = indent);
+        }
+        _ => unreachable!(),
+    }
 }
 
-unsafe fn print_graph_resultset(resultset: *const DseGraphResultSet) {
-    unimplemented!();
+unsafe fn print_graph_resultset(resultset: *mut DseGraphResultSet) {
+    let count = dse_graph_resultset_count(resultset);
+    let mut i = 0;
+    println!("[");
+    while i < count {
+        i += 1;
+        print_graph_result(4, dse_graph_resultset_next(resultset));
+        println!(",");
+    }
+    println!("]");
 }
 
 unsafe fn execute_graph_query(
