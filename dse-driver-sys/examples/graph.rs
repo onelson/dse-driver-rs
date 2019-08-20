@@ -165,10 +165,10 @@ unsafe fn execute_graph_query(
 ) -> cass_bool_t {
     let mut is_success: cass_bool_t = cass_bool_t_cass_false;
 
-    let mut statement = dse_graph_statement_new(query, options);
+    let statement = dse_graph_statement_new(query, options);
     dse_graph_statement_bind_values(statement, values);
 
-    let mut future = cass_session_execute_dse_graph(session, statement);
+    let future = cass_session_execute_dse_graph(session, statement);
 
     if cass_future_error_code(future) == CassError__CASS_OK {
         let rs = cass_future_get_dse_graph_resultset(future);
@@ -189,7 +189,7 @@ unsafe fn execute_graph_query(
 unsafe fn create_graph(session: *mut CassSession, name: *const c_char) -> cass_bool_t {
     let mut i: usize = 0;
     let mut is_success: cass_bool_t = cass_bool_t_cass_false;
-    let mut values: *mut DseGraphObject = dse_graph_object_new();
+    let values: *mut DseGraphObject = dse_graph_object_new();
 
     dse_graph_object_add_string(
         values,
@@ -281,7 +281,7 @@ fn main() {
         cass_cluster_set_contact_points(cluster, hosts.as_ptr());
         let connect_future = cass_session_connect(session, cluster);
         if cass_future_error_code(connect_future) == CassError__CASS_OK {
-            let mut options: *mut DseGraphOptions = dse_graph_options_new();
+            let options: *mut DseGraphOptions = dse_graph_options_new();
 
             dse_graph_options_set_graph_name(options, graph_name);
 
