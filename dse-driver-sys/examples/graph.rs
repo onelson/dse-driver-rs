@@ -256,7 +256,14 @@ unsafe fn execute_graph_query_and_print(
     options: *const DseGraphOptions,
     values: *const DseGraphObject,
 ) {
-    unimplemented!();
+    let mut resultset = MaybeUninit::uninit();
+    if execute_graph_query(session, query, options, values, resultset.as_mut_ptr())
+        == cass_bool_t_cass_true
+    {
+        let resultset = resultset.assume_init();
+        print_graph_resultset(resultset);
+        dse_graph_resultset_free(resultset);
+    }
 }
 
 fn main() {
