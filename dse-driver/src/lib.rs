@@ -1,7 +1,4 @@
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
-    }
-}
+//! A wrapper over the C/C++ DSE Driver. That's right.
+extern crate dse_driver_sys;
+
+pub mod graph;
