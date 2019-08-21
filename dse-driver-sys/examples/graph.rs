@@ -38,12 +38,11 @@ peter.addEdge('created', lop, 'weight', 0.2f);
 \0";
 
 use dse_driver_sys::{
-    cass_bool_t, cass_bool_t_cass_false, cass_bool_t_cass_true, cass_cluster_free,
-    cass_cluster_new_dse, cass_cluster_set_contact_points, cass_future_error_code,
-    cass_future_error_message, cass_future_free, cass_future_get_dse_graph_resultset,
-    cass_future_wait, cass_log_set_level, cass_session_close, cass_session_connect,
-    cass_session_execute_dse_graph, cass_session_free, cass_session_new,
-    dse_graph_object_add_string, dse_graph_object_finish, dse_graph_object_free,
+    cass_bool_t_cass_true, cass_cluster_free, cass_cluster_new_dse,
+    cass_cluster_set_contact_points, cass_future_error_code, cass_future_error_message,
+    cass_future_free, cass_future_get_dse_graph_resultset, cass_future_wait, cass_log_set_level,
+    cass_session_close, cass_session_connect, cass_session_execute_dse_graph, cass_session_free,
+    cass_session_new, dse_graph_object_add_string, dse_graph_object_finish, dse_graph_object_free,
     dse_graph_object_new, dse_graph_options_free, dse_graph_options_new,
     dse_graph_options_set_graph_name, dse_graph_result_element, dse_graph_result_element_count,
     dse_graph_result_get_bool, dse_graph_result_get_double, dse_graph_result_get_int32,
@@ -68,11 +67,16 @@ use std::mem::MaybeUninit;
 use std::os::raw::c_char;
 use std::ptr;
 
+/// This is very risky. Yikes, dawg.
+unsafe fn ptr_to_str<'a>(ptr: *const c_char) -> &'a str {
+    CStr::from_ptr(ptr).to_str().unwrap()
+}
+
 unsafe fn print_error(future: *mut CassFuture) {
     let mut msg = MaybeUninit::uninit();
     cass_future_error_message(future, msg.as_mut_ptr(), ptr::null_mut());
     let msg = msg.assume_init();
-    eprintln!("Error: {}", CStr::from_ptr(msg).to_str().unwrap());
+    eprintln!("Error: {}", ptr_to_str(msg));
 }
 
 unsafe fn print_graph_result(indent: usize, result: *const DseGraphResult) {
@@ -95,22 +99,14 @@ unsafe fn print_graph_result(indent: usize, result: *const DseGraphResult) {
             }
         }
         DSE_GRAPH_RESULT_TYPE_STRING => {
-            let value = CStr::from_ptr(dse_graph_result_get_string(result, ptr::null_mut()));
-            print!(
-                "{:indent$}\"{}\"",
-                "",
-                value.to_str().unwrap(),
-                indent = indent
-            );
+            let value = ptr_to_str(dse_graph_result_get_string(result, ptr::null_mut()));
+            print!("{:indent$}\"{}\"", "", value, indent = indent);
         }
         DSE_GRAPH_RESULT_TYPE_OBJECT => {
             let count = dse_graph_result_member_count(result);
-            let mut i = 0;
             print!("{:indent$}{}", "", "{", indent = indent);
-            while i < count {
-                let key = CStr::from_ptr(dse_graph_result_member_key(result, i, ptr::null_mut()))
-                    .to_str()
-                    .unwrap();
+            for i in 0..count {
+                let key = ptr_to_str(dse_graph_result_member_key(result, i, ptr::null_mut()));
                 let value = dse_graph_result_member_value(result, i);
                 let kind = dse_graph_result_type(value);
                 println!();
@@ -125,7 +121,6 @@ unsafe fn print_graph_result(indent: usize, result: *const DseGraphResult) {
                     }
                 }
                 print!(",");
-                i += 1;
             }
             println!();
             print!("{:indent$}{}", "", "}", indent = indent);
@@ -133,13 +128,12 @@ unsafe fn print_graph_result(indent: usize, result: *const DseGraphResult) {
         DSE_GRAPH_RESULT_TYPE_ARRAY => {
             let count = dse_graph_result_element_count(result);
             println!("{:indent$}{}", "", "[", indent = indent);
-            let mut i = 0;
-            while i < count {
+
+            for i in 0..count {
                 let element = dse_graph_result_element(result, i);
                 println!();
                 print_graph_result(indent + 4, element);
                 print!(",");
-                i += 1;
             }
             println!();
             print!("{:indent$}{}", "", "]", indent = indent);
@@ -150,12 +144,10 @@ unsafe fn print_graph_result(indent: usize, result: *const DseGraphResult) {
 
 unsafe fn print_graph_resultset(resultset: *mut DseGraphResultSet) {
     let count = dse_graph_resultset_count(resultset);
-    let mut i = 0;
     println!("[");
-    while i < count {
+    for _ in 0..count {
         print_graph_result(4, dse_graph_resultset_next(resultset));
         println!(",");
-        i += 1;
     }
     println!("]");
 }
@@ -166,8 +158,8 @@ unsafe fn execute_graph_query(
     options: *const DseGraphOptions,
     values: *const DseGraphObject,
     resultset: *mut *mut DseGraphResultSet,
-) -> cass_bool_t {
-    let mut is_success: cass_bool_t = cass_bool_t_cass_false;
+) -> bool {
+    let mut is_success = false;
 
     let statement = dse_graph_statement_new(query, options);
     dse_graph_statement_bind_values(statement, values);
@@ -181,7 +173,7 @@ unsafe fn execute_graph_query(
         } else {
             dse_graph_resultset_free(rs);
         }
-        is_success = cass_bool_t_cass_true;
+        is_success = true;
     } else {
         print_error(future);
     }
@@ -190,9 +182,8 @@ unsafe fn execute_graph_query(
     is_success
 }
 
-unsafe fn create_graph(session: *mut CassSession, name: *const c_char) -> cass_bool_t {
-    let mut i: usize = 0;
-    let mut is_success: cass_bool_t = cass_bool_t_cass_false;
+unsafe fn create_graph(session: *mut CassSession, name: *const c_char) -> bool {
+    let mut is_success = false;
     let values: *mut DseGraphObject = dse_graph_object_new();
 
     dse_graph_object_add_string(
@@ -214,9 +205,8 @@ unsafe fn create_graph(session: *mut CassSession, name: *const c_char) -> cass_b
         ptr::null(),
         values,
         ptr::null_mut(),
-    ) == cass_bool_t_cass_true
-    {
-        while i < 10 {
+    ) {
+        for _ in 0..10 {
             // This uninitialized memory gets passed into the C lib so it has
             // some place to write data to. We're just reserving a chunk of memory.
             let mut resultset = std::mem::MaybeUninit::uninit();
@@ -226,8 +216,7 @@ unsafe fn create_graph(session: *mut CassSession, name: *const c_char) -> cass_b
                 ptr::null(),
                 values,
                 resultset.as_mut_ptr(),
-            ) == cass_bool_t_cass_true
-            {
+            ) {
                 // The value should be safe to use at now.
                 let resultset = resultset.assume_init();
 
@@ -236,7 +225,7 @@ unsafe fn create_graph(session: *mut CassSession, name: *const c_char) -> cass_b
                     if dse_graph_result_is_bool(result) == cass_bool_t_cass_true
                         && dse_graph_result_get_bool(result) == cass_bool_t_cass_true
                     {
-                        is_success = cass_bool_t_cass_true;
+                        is_success = true;
                         dse_graph_resultset_free(resultset);
                         break;
                     }
@@ -245,7 +234,6 @@ unsafe fn create_graph(session: *mut CassSession, name: *const c_char) -> cass_b
                 std::thread::sleep(std::time::Duration::from_secs(1));
                 dse_graph_resultset_free(resultset);
             }
-            i += 1;
         }
     }
 
@@ -260,9 +248,7 @@ unsafe fn execute_graph_query_and_print(
     values: *const DseGraphObject,
 ) {
     let mut resultset = MaybeUninit::uninit();
-    if execute_graph_query(session, query, options, values, resultset.as_mut_ptr())
-        == cass_bool_t_cass_true
-    {
+    if execute_graph_query(session, query, options, values, resultset.as_mut_ptr()) {
         let resultset = resultset.assume_init();
         print_graph_resultset(resultset);
         dse_graph_resultset_free(resultset);
@@ -295,7 +281,7 @@ fn main() {
 
             dse_graph_options_set_graph_name(options, graph_name);
 
-            if create_graph(session, graph_name) == cass_bool_t_cass_true {
+            if create_graph(session, graph_name) {
                 execute_graph_query(session, allow_scans, options, ptr::null(), ptr::null_mut());
                 execute_graph_query(session, make_strict, options, ptr::null(), ptr::null_mut());
                 execute_graph_query(session, schema, options, ptr::null(), ptr::null_mut());
@@ -336,10 +322,7 @@ fn main() {
             let mut msg = MaybeUninit::uninit();
             cass_future_error_message(connect_future, msg.as_mut_ptr(), ptr::null_mut());
             let msg = msg.assume_init();
-            eprintln!(
-                "Unable to connect: {}",
-                CStr::from_ptr(msg).to_str().unwrap()
-            );
+            eprintln!("Unable to connect: {}", ptr_to_str(msg));
         }
 
         cass_future_free(connect_future);
