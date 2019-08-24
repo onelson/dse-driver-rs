@@ -1,9 +1,13 @@
 use dse_driver_sys::{
-    cass_int64_t, dse_graph_options_free, dse_graph_options_new,
-    dse_graph_options_new_from_existing, dse_graph_options_set_graph_language,
-    dse_graph_options_set_graph_name, dse_graph_options_set_graph_source,
-    dse_graph_options_set_read_consistency, dse_graph_options_set_request_timeout,
-    DseGraphOptions as RawDseGraphOptions,
+    cass_int64_t, cass_session_close, cass_session_connect, cass_session_connect_keyspace,
+    cass_session_execute, cass_session_execute_batch, cass_session_execute_dse_graph,
+    cass_session_free, cass_session_get_client_id, cass_session_get_metrics,
+    cass_session_get_schema_meta, cass_session_get_speculative_execution_metrics, cass_session_new,
+    cass_session_prepare, cass_session_prepare_from_existing, dse_graph_options_free,
+    dse_graph_options_new, dse_graph_options_new_from_existing,
+    dse_graph_options_set_graph_language, dse_graph_options_set_graph_name,
+    dse_graph_options_set_graph_source, dse_graph_options_set_read_consistency,
+    dse_graph_options_set_request_timeout, CassSession, DseGraphOptions as RawDseGraphOptions,
 };
 
 use dse_driver_sys::{
@@ -19,7 +23,9 @@ use dse_driver_sys::{
     CassConsistency__CASS_CONSISTENCY_THREE as CASS_CONSISTENCY_THREE,
     CassConsistency__CASS_CONSISTENCY_TWO as CASS_CONSISTENCY_TWO,
     CassConsistency__CASS_CONSISTENCY_UNKNOWN as CASS_CONSISTENCY_UNKNOWN,
+    CassSession as RawCassSession,
 };
+
 use std::ffi::CString;
 use std::time::Duration;
 
@@ -57,6 +63,7 @@ impl From<Consistency> for CassConsistency {
         }
     }
 }
+
 /// Configuration options for a cluster connection.
 ///
 /// ```
@@ -70,6 +77,66 @@ impl From<Consistency> for CassConsistency {
 /// ```
 pub struct DseGraphOptions {
     ptr: *mut RawDseGraphOptions,
+}
+
+pub struct Session {
+    ptr: *mut RawCassSession,
+}
+
+#[cfg(todo)]
+impl Session {
+    pub fn new() -> Self {
+        Self {
+            ptr: unsafe { cass_session_new() },
+        }
+    }
+
+    pub fn connect(&mut self) {
+        unsafe { cass_session_connect(self.ptr, _) }
+    }
+    pub fn connect_keyspace(&mut self) {
+        unsafe { cass_session_connect_keyspace(self.ptr, _, _) }
+    }
+    pub fn close(&mut self) {
+        let _fut = unsafe { cass_session_close(self.ptr) };
+        unimplemented!("wrap the future");
+    }
+    pub fn prepare(&mut self, query: &str) {
+        let query = CString::new(query);
+        let _fut = unsafe { cass_session_prepare(self.ptr, query.as_ptr()) };
+        unimplemented!("wrap the future");
+    }
+    pub fn prepare_from_existing(&mut self) {
+        unsafe { cass_session_prepare_from_existing(self.ptr, _) }
+    }
+    pub fn execute(&mut self) {
+        unsafe { cass_session_execute(self.ptr, _) }
+    }
+    pub fn execute_batch(&mut self) {
+        unsafe { cass_session_execute_batch(self.ptr, _) }
+    }
+    pub fn get_schema_meta(&self) {
+        let _meta = unsafe { cass_session_get_schema_meta(self.ptr) };
+        unimplemented!("wrap and return");
+    }
+    pub fn get_metrics(&mut self) {
+        unsafe { cass_session_get_metrics(self.ptr, _) }
+    }
+    pub fn get_speculative_execution_metrics(&mut self) {
+        unsafe { cass_session_get_speculative_execution_metrics(self.ptr, _) }
+    }
+    pub fn execute_dse_graph(&mut self) {
+        unsafe { cass_session_execute_dse_graph(self.ptr, _) }
+    }
+    pub fn get_client_id(&mut self) {
+        unsafe { cass_session_get_client_id(self.ptr, _) }
+    }
+}
+
+impl Drop for Session {
+    fn drop(&mut self) {
+        unsafe { cass_session_free(self.ptr) }
+    }
 }
 
 impl DseGraphOptions {
