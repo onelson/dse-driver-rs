@@ -1,5 +1,5 @@
-use crate::PtrProxy;
-use dse_driver_derive::PtrProxy;
+use crate::{Ptr, PtrMut};
+use dse_driver_derive::{Ptr, PtrMut};
 // Plain imports
 use dse_driver_sys::{
     cass_int64_t, cass_session_close, cass_session_connect, cass_session_connect_keyspace,
@@ -81,35 +81,46 @@ impl From<Consistency> for CassConsistency {
 ///     .set_graph_name("pokemon")
 ///     .set_request_timeout(Duration::from_secs(45));
 /// ```
-#[derive(PtrProxy)]
+#[derive(Ptr, PtrMut)]
 #[ptr_type(_DseGraphOptions)]
 pub struct DseGraphOptions {
     _ptr: *mut _DseGraphOptions,
 }
-#[derive(PtrProxy)]
+
+#[derive(Ptr)]
 #[ptr_type(_DseGraphStatement)]
 pub struct DseGraphStatement {
     _ptr: *mut _DseGraphStatement,
 }
-#[derive(PtrProxy)]
+
+#[derive(Ptr)]
 #[ptr_type(CassCluster)]
 pub struct Cluster {
     _ptr: *mut CassCluster,
 }
-#[derive(PtrProxy)]
+
+#[derive(Ptr, PtrMut)]
 #[ptr_type(CassSession)]
 pub struct Session {
     _ptr: *mut CassSession,
 }
-#[derive(PtrProxy)]
+
+#[derive(Ptr, PtrMut)]
 #[ptr_type(CassStatement)]
 pub struct Statement {
     _ptr: *mut CassStatement,
 }
-#[derive(PtrProxy)]
+
+#[derive(Ptr)]
 #[ptr_type(CassBatch)]
 pub struct Batch {
     _ptr: *mut CassBatch,
+}
+
+#[derive(Ptr)]
+#[ptr_type(CassSchemaMeta)]
+pub struct SchemaMeta {
+    _ptr: *const CassSchemaMeta,
 }
 
 impl Session {
@@ -154,10 +165,9 @@ impl Session {
         let _fut = unsafe { cass_session_execute_batch(self.ptr_mut(), batch.ptr()) };
         unimplemented!();
     }
-    pub fn get_schema_meta(&self) {
-        let _meta: *const CassSchemaMeta = unsafe { cass_session_get_schema_meta(self.ptr()) };
-        // FIXME: not sure of what to do with the const pointer we get back from this
-        unimplemented!()
+    pub fn get_schema_meta(&self) -> SchemaMeta {
+        let meta: *const CassSchemaMeta = unsafe { cass_session_get_schema_meta(self.ptr()) };
+        SchemaMeta { _ptr: meta }
     }
 
     pub fn get_metrics(&mut self) -> CassMetrics {

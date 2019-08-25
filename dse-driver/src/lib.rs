@@ -1,9 +1,11 @@
 pub mod graph;
 
-pub(crate) trait PtrProxy {
+pub(crate) trait Ptr {
     type T;
     fn ptr(&self) -> *const Self::T;
-    fn ptr_mut(&mut self) -> *mut Self::T {
-        self.ptr() as *mut Self::T
-    }
+}
+
+pub(crate) trait PtrMut {
+    type T;
+    fn ptr_mut(&mut self) -> *mut Self::T;
 }
