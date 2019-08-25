@@ -1,3 +1,5 @@
+use crate::PtrProxy;
+use dse_driver_derive::PtrProxy;
 // Plain imports
 use dse_driver_sys::{
     cass_int64_t, cass_session_close, cass_session_connect, cass_session_connect_keyspace,
@@ -68,14 +70,6 @@ impl From<Consistency> for CassConsistency {
     }
 }
 
-trait PtrProxy {
-    type T;
-    fn ptr(&self) -> *const Self::T;
-    fn ptr_mut(&mut self) -> *mut Self::T {
-        self.ptr() as *mut Self::T
-    }
-}
-
 /// Configuration options for a cluster connection.
 ///
 /// ```
@@ -87,70 +81,35 @@ trait PtrProxy {
 ///     .set_graph_name("pokemon")
 ///     .set_request_timeout(Duration::from_secs(45));
 /// ```
+#[derive(PtrProxy)]
+#[ptr_type(_DseGraphOptions)]
 pub struct DseGraphOptions {
     _ptr: *mut _DseGraphOptions,
 }
-
+#[derive(PtrProxy)]
+#[ptr_type(_DseGraphStatement)]
 pub struct DseGraphStatement {
     _ptr: *mut _DseGraphStatement,
 }
-
+#[derive(PtrProxy)]
+#[ptr_type(CassCluster)]
 pub struct Cluster {
     _ptr: *mut CassCluster,
 }
-
+#[derive(PtrProxy)]
+#[ptr_type(CassSession)]
 pub struct Session {
     _ptr: *mut CassSession,
 }
-
+#[derive(PtrProxy)]
+#[ptr_type(CassStatement)]
 pub struct Statement {
     _ptr: *mut CassStatement,
 }
-
+#[derive(PtrProxy)]
+#[ptr_type(CassBatch)]
 pub struct Batch {
     _ptr: *mut CassBatch,
-}
-
-impl PtrProxy for Cluster {
-    type T = CassCluster;
-    fn ptr(&self) -> *const Self::T {
-        self._ptr
-    }
-}
-
-impl PtrProxy for Session {
-    type T = CassSession;
-    fn ptr(&self) -> *const Self::T {
-        self._ptr
-    }
-}
-
-impl PtrProxy for DseGraphOptions {
-    type T = _DseGraphOptions;
-    fn ptr(&self) -> *const Self::T {
-        self._ptr
-    }
-}
-
-impl PtrProxy for Statement {
-    type T = CassStatement;
-    fn ptr(&self) -> *const Self::T {
-        self._ptr
-    }
-}
-
-impl PtrProxy for DseGraphStatement {
-    type T = _DseGraphStatement;
-    fn ptr(&self) -> *const Self::T {
-        self._ptr
-    }
-}
-
-impl PtrProxy for Batch {
-    type T = CassBatch;
-    fn ptr(&self) -> *const Self::T {
-        self._ptr
-    }
 }
 
 impl Session {

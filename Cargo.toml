@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "dse-driver-derive",
     "dse-driver-sys",
-    "dse-driver"
+    "dse-driver",
 ]

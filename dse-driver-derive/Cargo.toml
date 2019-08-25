@@ -1,15 +1,13 @@
 [package]
-name = "dse-driver-rs"
+name = "dse-driver-derive"
 version = "0.1.0"
 authors = ["Owen Nelson <onelson@gmail.com>"]
 edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lib]
+proc-macro = true
 
 [dependencies]
-dse-driver-derive = { path = "../dse-driver-derive" }
-dse-driver-sys = { path = "../dse-driver-sys" }
-
-[lib]
-name = "dse_driver"
-path = "src/lib.rs"
+syn = "1.0.4"
+quote = "1.0.2"
