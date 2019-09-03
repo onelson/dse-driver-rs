@@ -11,7 +11,7 @@ use dse_driver_sys::{
     dse_graph_options_set_graph_language, dse_graph_options_set_graph_name,
     dse_graph_options_set_graph_source, dse_graph_options_set_read_consistency,
     dse_graph_options_set_request_timeout, CassBatch, CassCluster, CassMetrics, CassSchemaMeta,
-    CassSession, CassSpeculativeExecutionMetrics, CassStatement, CassUuid,
+    CassSession, CassSpeculativeExecutionMetrics, CassStatement, CassUuid, DseGraphObject,
 };
 
 // Aliased imports.
@@ -102,6 +102,7 @@ pub struct Cluster {
 #[derive(Ptr, PtrMut)]
 #[ptr_type(CassSession)]
 pub struct Session {
+    // FIXME: seems like we should also store a `DseGraphOptions` in here.
     _ptr: *mut CassSession,
 }
 
@@ -134,6 +135,7 @@ impl Session {
         let _fut = unsafe { cass_session_connect(self.ptr_mut(), cluster.ptr()) };
         unimplemented!();
     }
+
     pub fn connect_keyspace(&mut self, cluster: &Cluster, keyspace: &str) {
         let keyspace = CString::new(keyspace).unwrap();
         let _fut = unsafe {
@@ -141,36 +143,40 @@ impl Session {
         };
         unimplemented!();
     }
+
     pub fn close(&mut self) {
         let _fut = unsafe { cass_session_close(self.ptr_mut()) };
         unimplemented!();
     }
-    pub fn prepare(&mut self, query: &str) {
+
+    fn prepare(&mut self, query: &str) {
         let query = CString::new(query).unwrap();
         let _fut = unsafe { cass_session_prepare(self.ptr_mut(), query.as_ptr()) };
         unimplemented!();
     }
-    pub fn prepare_from_existing(&mut self, statement: &mut Statement) {
+
+    fn prepare_from_existing(&mut self, statement: &mut Statement) {
         let _fut =
             unsafe { cass_session_prepare_from_existing(self.ptr_mut(), statement.ptr_mut()) };
         unimplemented!();
     }
 
-    pub fn execute(&mut self, statement: &Statement) {
+    fn execute(&mut self, statement: &Statement) {
         let _fut = unsafe { cass_session_execute(self.ptr_mut(), statement.ptr()) };
         unimplemented!();
     }
 
-    pub fn execute_batch(&mut self, batch: &Batch) {
+    fn execute_batch(&mut self, batch: &Batch) {
         let _fut = unsafe { cass_session_execute_batch(self.ptr_mut(), batch.ptr()) };
         unimplemented!();
     }
-    pub fn get_schema_meta(&self) -> SchemaMeta {
+
+    fn get_schema_meta(&self) -> SchemaMeta {
         let meta: *const CassSchemaMeta = unsafe { cass_session_get_schema_meta(self.ptr()) };
         SchemaMeta { _ptr: meta }
     }
 
-    pub fn get_metrics(&mut self) -> CassMetrics {
+    fn get_metrics(&mut self) -> CassMetrics {
         let mut metrics = MaybeUninit::uninit();
         unsafe {
             cass_session_get_metrics(self.ptr(), metrics.as_mut_ptr());
@@ -178,7 +184,7 @@ impl Session {
         }
     }
 
-    pub fn get_speculative_execution_metrics(&mut self) -> CassSpeculativeExecutionMetrics {
+    fn get_speculative_execution_metrics(&mut self) -> CassSpeculativeExecutionMetrics {
         let mut se_metrics = MaybeUninit::uninit();
         unsafe {
             cass_session_get_speculative_execution_metrics(self.ptr(), se_metrics.as_mut_ptr());
@@ -186,10 +192,18 @@ impl Session {
         }
     }
 
-    pub fn execute_dse_graph(&mut self, statement: &DseGraphStatement) {
+    pub fn execute_graph<V>(&mut self, query: &str, values: V) -> Result<(), ()>
+    where
+        V: AsRef<DseGraphObject>, // FIXME: need to use a wrapper for the object type
+    {
+        Err(())
+    }
+
+    fn execute_dse_graph(&mut self, statement: &DseGraphStatement) {
         let _fut = unsafe { cass_session_execute_dse_graph(self.ptr_mut(), statement.ptr()) };
         unimplemented!();
     }
+
     pub fn get_client_id(&mut self) -> CassUuid {
         unsafe { cass_session_get_client_id(self.ptr_mut()) }
     }
