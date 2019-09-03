@@ -2,16 +2,17 @@ use crate::{Ptr, PtrMut};
 use dse_driver_derive::{Ptr, PtrMut};
 // Plain imports
 use dse_driver_sys::{
-    cass_int64_t, cass_session_close, cass_session_connect, cass_session_connect_keyspace,
-    cass_session_execute, cass_session_execute_batch, cass_session_execute_dse_graph,
-    cass_session_free, cass_session_get_client_id, cass_session_get_metrics,
-    cass_session_get_schema_meta, cass_session_get_speculative_execution_metrics, cass_session_new,
-    cass_session_prepare, cass_session_prepare_from_existing, dse_graph_options_free,
-    dse_graph_options_new, dse_graph_options_new_from_existing,
-    dse_graph_options_set_graph_language, dse_graph_options_set_graph_name,
-    dse_graph_options_set_graph_source, dse_graph_options_set_read_consistency,
-    dse_graph_options_set_request_timeout, CassBatch, CassCluster, CassMetrics, CassSchemaMeta,
-    CassSession, CassSpeculativeExecutionMetrics, CassStatement, CassUuid, DseGraphObject,
+    cass_future_error_code, cass_future_free, cass_int64_t, cass_session_close,
+    cass_session_connect, cass_session_connect_keyspace, cass_session_execute,
+    cass_session_execute_batch, cass_session_execute_dse_graph, cass_session_free,
+    cass_session_get_client_id, cass_session_get_metrics, cass_session_get_schema_meta,
+    cass_session_get_speculative_execution_metrics, cass_session_new, cass_session_prepare,
+    cass_session_prepare_from_existing, dse_graph_options_free, dse_graph_options_new,
+    dse_graph_options_new_from_existing, dse_graph_options_set_graph_language,
+    dse_graph_options_set_graph_name, dse_graph_options_set_graph_source,
+    dse_graph_options_set_read_consistency, dse_graph_options_set_request_timeout, CassBatch,
+    CassCluster, CassFuture, CassMetrics, CassSchemaMeta, CassSession,
+    CassSpeculativeExecutionMetrics, CassStatement, CassUuid, DseGraphObject,
 };
 
 // Aliased imports.
@@ -28,12 +29,26 @@ use dse_driver_sys::{
     CassConsistency__CASS_CONSISTENCY_THREE as CASS_CONSISTENCY_THREE,
     CassConsistency__CASS_CONSISTENCY_TWO as CASS_CONSISTENCY_TWO,
     CassConsistency__CASS_CONSISTENCY_UNKNOWN as CASS_CONSISTENCY_UNKNOWN,
-    DseGraphOptions as _DseGraphOptions, DseGraphStatement as _DseGraphStatement,
+    CassError__CASS_OK as CASS_OK, DseGraphOptions as _DseGraphOptions,
+    DseGraphStatement as _DseGraphStatement,
 };
 
 use std::ffi::CString;
 use std::mem::MaybeUninit;
 use std::time::Duration;
+
+type GraphError = ();
+
+type Result<T> = std::result::Result<T, GraphError>;
+
+/// Checks the outcome of a `CassFuture`.
+fn future_result(fut: *mut CassFuture) -> Result<()> {
+    if unsafe { cass_future_error_code(fut) } == CASS_OK {
+        Ok(())
+    } else {
+        Err(())
+    }
+}
 
 pub enum Consistency {
     Unknown,
@@ -99,11 +114,23 @@ pub struct Cluster {
     _ptr: *mut CassCluster,
 }
 
+impl Cluster {
+    pub fn connect(&self) -> Result<Session> {
+        Session::new(self.ptr())
+    }
+
+    pub fn connect_with_keyspace(&self, keyspace: &str) -> Result<Session> {
+        Session::new_with_keyspace(self.ptr(), keyspace)
+    }
+}
+
 #[derive(Ptr, PtrMut)]
 #[ptr_type(CassSession)]
 pub struct Session {
     // FIXME: seems like we should also store a `DseGraphOptions` in here.
     _ptr: *mut CassSession,
+    /// `CassFutures` which should be freed during `Drop`.
+    futures: Vec<*mut CassFuture>,
 }
 
 #[derive(Ptr, PtrMut)]
@@ -124,24 +151,42 @@ pub struct SchemaMeta {
     _ptr: *const CassSchemaMeta,
 }
 
+/// Note that `new()` and `new_with_keyspace()` are private to help ensure a
+/// `Cluster` is handling the init for a `Session`.
 impl Session {
-    pub fn new() -> Self {
-        Self {
+    /// Create a session connected to a cluster.
+    fn new(cluster: *const CassCluster) -> Result<Self> {
+        let mut sess = Self {
             _ptr: unsafe { cass_session_new() },
-        }
-    }
-
-    pub fn connect(&mut self, cluster: &Cluster) {
-        let _fut = unsafe { cass_session_connect(self.ptr_mut(), cluster.ptr()) };
-        unimplemented!();
-    }
-
-    pub fn connect_keyspace(&mut self, cluster: &Cluster, keyspace: &str) {
-        let keyspace = CString::new(keyspace).unwrap();
-        let _fut = unsafe {
-            cass_session_connect_keyspace(self.ptr_mut(), cluster.ptr(), keyspace.as_ptr())
+            futures: vec![],
         };
-        unimplemented!();
+        sess.connect(cluster).and_then(|_| Ok(sess))
+    }
+    /// Same as `Session::new()` but also sets the default keyspace queries made
+    /// through this `Session`.
+    fn new_with_keyspace(cluster: *const CassCluster, keyspace: &str) -> Result<Self> {
+        let mut sess = Self {
+            _ptr: unsafe { cass_session_new() },
+            futures: vec![],
+        };
+
+        sess.connect_keyspace(cluster, keyspace)
+            .and_then(|_| Ok(sess))
+    }
+
+    fn connect(&mut self, cluster: *const CassCluster) -> Result<()> {
+        let fut = unsafe { cass_session_connect(self.ptr_mut(), cluster) };
+        // FIXME: check to see if we can free this future immediately...
+        self.futures.push(fut);
+        future_result(fut)
+    }
+
+    fn connect_keyspace(&mut self, cluster: *const CassCluster, keyspace: &str) -> Result<()> {
+        let keyspace = CString::new(keyspace).unwrap();
+        let fut =
+            unsafe { cass_session_connect_keyspace(self.ptr_mut(), cluster, keyspace.as_ptr()) };
+        self.futures.push(fut);
+        future_result(fut)
     }
 
     pub fn close(&mut self) {
@@ -192,7 +237,7 @@ impl Session {
         }
     }
 
-    pub fn execute_graph<V>(&mut self, query: &str, values: V) -> Result<(), ()>
+    pub fn execute_graph<V>(&mut self, query: &str, values: V) -> Result<()>
     where
         V: AsRef<DseGraphObject>, // FIXME: need to use a wrapper for the object type
     {
@@ -211,7 +256,12 @@ impl Session {
 
 impl Drop for Session {
     fn drop(&mut self) {
-        unsafe { cass_session_free(self.ptr_mut()) }
+        unsafe {
+            for fut in self.futures.drain(..) {
+                cass_future_free(fut);
+            }
+            cass_session_free(self.ptr_mut());
+        }
     }
 }
 
